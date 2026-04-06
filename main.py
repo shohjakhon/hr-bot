@@ -1,7 +1,8 @@
 import logging
+import asyncio
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import (
-    Application,
+    ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     filters,
@@ -18,20 +19,13 @@ FIRMALAR = ["Firma 1", "Firma 2", "Firma 3", "Firma 4"]
 LAVOZIMLAR = ["Ish boshqaruvchi", "Sotuvchi", "Yuklovchi", "Haydovchi", "Usta"]
 
 # --- BOSQICHLAR ---
-(
-    FIRMA,
-    LAVOZIM,
-    ISM,
-    YOSH,
-    TELEFON,
-    MANZIL,
-    TAJRIBA,
-    OLDINGI_ISH,
-    SABAB,
-    RASM,
-) = range(10)
+FIRMA, LAVOZIM, ISM, YOSH, TELEFON, MANZIL, TAJRIBA, OLDINGI_ISH, SABAB, RASM = range(10)
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -43,10 +37,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return FIRMA
 
 
-async def firma(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def firma_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text not in FIRMALAR:
-        await update.message.reply_text("Iltimos, quyidagi firmalardan birini tanlang:")
+        keyboard = [[f] for f in FIRMALAR]
+        await update.message.reply_text(
+            "Iltimos, quyidagi firmalardan birini tanlang:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
+        )
         return FIRMA
     context.user_data["firma"] = text
     keyboard = [[l] for l in LAVOZIMLAR]
@@ -57,10 +55,14 @@ async def firma(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return LAVOZIM
 
 
-async def lavozim(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def lavozim_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     if text not in LAVOZIMLAR:
-        await update.message.reply_text("Iltimos, quyidagi lavozimlardan birini tanlang:")
+        keyboard = [[l] for l in LAVOZIMLAR]
+        await update.message.reply_text(
+            "Iltimos, quyidagi lavozimlardan birini tanlang:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
+        )
         return LAVOZIM
     context.user_data["lavozim"] = text
     await update.message.reply_text(
@@ -70,51 +72,51 @@ async def lavozim(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ISM
 
 
-async def ism(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def ism_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["ism"] = update.message.text
     await update.message.reply_text("2️⃣ Yoshingizni kiriting:")
     return YOSH
 
 
-async def yosh(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def yosh_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["yosh"] = update.message.text
     await update.message.reply_text("3️⃣ Telefon raqamingizni kiriting (+998XXXXXXXXX):")
     return TELEFON
 
 
-async def telefon(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def telefon_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["telefon"] = update.message.text
     await update.message.reply_text("4️⃣ Yashash manzilingizni kiriting (Shahar, tuman):")
     return MANZIL
 
 
-async def manzil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def manzil_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["manzil"] = update.message.text
     await update.message.reply_text("5️⃣ Ish tajribangiz necha yil?")
     return TAJRIBA
 
 
-async def tajriba(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def tajriba_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["tajriba"] = update.message.text
     await update.message.reply_text("6️⃣ Oldingi ish joyingiz qayer edi?")
     return OLDINGI_ISH
 
 
-async def oldingi_ish(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def oldingi_ish_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["oldingi_ish"] = update.message.text
     await update.message.reply_text("7️⃣ Nega aynan shu lavozimga murojaat qilmoqdasiz?")
     return SABAB
 
 
-async def sabab(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def sabab_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["sabab"] = update.message.text
     await update.message.reply_text("8️⃣ Rasmingizni yuboring (selfie yoki passport foto):")
     return RASM
 
 
-async def rasm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def rasm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message.photo:
-        await update.message.reply_text("Iltimos, rasm yuboring:")
+        await update.message.reply_text("Iltimos, rasm yuboring (faqat rasm qabul qilinadi):")
         return RASM
 
     photo = update.message.photo[-1]
@@ -122,15 +124,15 @@ async def rasm(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     caption = (
         f"📋 *YANGI ANKETA*\n\n"
-        f"🏢 *Firma:* {d.get('firma')}\n"
-        f"💼 *Lavozim:* {d.get('lavozim')}\n\n"
-        f"👤 *Ism Familiya:* {d.get('ism')}\n"
-        f"🎂 *Yosh:* {d.get('yosh')}\n"
-        f"📞 *Telefon:* {d.get('telefon')}\n"
-        f"📍 *Manzil:* {d.get('manzil')}\n"
-        f"🗓 *Tajriba:* {d.get('tajriba')} yil\n"
-        f"🏭 *Oldingi ish joyi:* {d.get('oldingi_ish')}\n"
-        f"💬 *Murojaat sababi:* {d.get('sabab')}\n"
+        f"🏢 *Firma:* {d.get('firma', '-')}\n"
+        f"💼 *Lavozim:* {d.get('lavozim', '-')}\n\n"
+        f"👤 *Ism Familiya:* {d.get('ism', '-')}\n"
+        f"🎂 *Yosh:* {d.get('yosh', '-')}\n"
+        f"📞 *Telefon:* {d.get('telefon', '-')}\n"
+        f"📍 *Manzil:* {d.get('manzil', '-')}\n"
+        f"🗓 *Tajriba:* {d.get('tajriba', '-')} yil\n"
+        f"🏭 *Oldingi ish joyi:* {d.get('oldingi_ish', '-')}\n"
+        f"💬 *Murojaat sababi:* {d.get('sabab', '-')}\n"
     )
 
     await context.bot.send_photo(
@@ -157,30 +159,33 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-def main():
-    app = Application.builder().token(BOT_TOKEN).build()
+async def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            FIRMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, firma)],
-            LAVOZIM: [MessageHandler(filters.TEXT & ~filters.COMMAND, lavozim)],
-            ISM: [MessageHandler(filters.TEXT & ~filters.COMMAND, ism)],
-            YOSH: [MessageHandler(filters.TEXT & ~filters.COMMAND, yosh)],
-            TELEFON: [MessageHandler(filters.TEXT & ~filters.COMMAND, telefon)],
-            MANZIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, manzil)],
-            TAJRIBA: [MessageHandler(filters.TEXT & ~filters.COMMAND, tajriba)],
-            OLDINGI_ISH: [MessageHandler(filters.TEXT & ~filters.COMMAND, oldingi_ish)],
-            SABAB: [MessageHandler(filters.TEXT & ~filters.COMMAND, sabab)],
-            RASM: [MessageHandler(filters.PHOTO, rasm), MessageHandler(filters.TEXT & ~filters.COMMAND, rasm)],
+            FIRMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, firma_handler)],
+            LAVOZIM: [MessageHandler(filters.TEXT & ~filters.COMMAND, lavozim_handler)],
+            ISM: [MessageHandler(filters.TEXT & ~filters.COMMAND, ism_handler)],
+            YOSH: [MessageHandler(filters.TEXT & ~filters.COMMAND, yosh_handler)],
+            TELEFON: [MessageHandler(filters.TEXT & ~filters.COMMAND, telefon_handler)],
+            MANZIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, manzil_handler)],
+            TAJRIBA: [MessageHandler(filters.TEXT & ~filters.COMMAND, tajriba_handler)],
+            OLDINGI_ISH: [MessageHandler(filters.TEXT & ~filters.COMMAND, oldingi_ish_handler)],
+            SABAB: [MessageHandler(filters.TEXT & ~filters.COMMAND, sabab_handler)],
+            RASM: [
+                MessageHandler(filters.PHOTO, rasm_handler),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, rasm_handler),
+            ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
 
     app.add_handler(conv_handler)
-    print("Bot ishga tushdi...")
-    app.run_polling()
+    logger.info("Bot ishga tushdi...")
+    await app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
