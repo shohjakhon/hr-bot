@@ -98,8 +98,9 @@ def firma_keyboard():
 
 
 def lavozim_keyboard(firma_nomi):
-    lavozimlar = FIRMA_LAVOZIMLAR.get(firma_nomi, [])
+    lavozimlar = FIRMA_LAVOZIMLAR[firma_nomi]["lavozimlar"]
     buttons = [[KeyboardButton(text=l)] for l in lavozimlar]
+    buttons.append([KeyboardButton(text="⬅️ Ortga")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 
@@ -124,6 +125,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 
 async def bosh_sahifa(message: Message, state: FSMContext):
+    await state.clear()
     await state.set_state(Anketa.firma)
     await message.answer(
         "👋 Xush kelibsiz! HR Anketa Botiga!\n\nQaysi firmaga murojaat qilmoqchisiz?",
@@ -151,9 +153,12 @@ async def get_firma(message: Message, state: FSMContext):
 
 @dp.message(Anketa.lavozim)
 async def get_lavozim(message: Message, state: FSMContext):
+    if message.text == "⬅️ Ortga":
+        await bosh_sahifa(message, state)
+        return
     data = await state.get_data()
     firma_nomi = data.get("firma")
-    lavozimlar = FIRMA_LAVOZIMLAR.get(firma_nomi, [])
+    lavozimlar = FIRMA_LAVOZIMLAR[firma_nomi]["lavozimlar"]
     if message.text not in lavozimlar:
         await message.answer("Iltimos, quyidagi lavozimlardan birini tanlang:", reply_markup=lavozim_keyboard(firma_nomi))
         return
@@ -263,6 +268,8 @@ async def rasm_xato(message: Message):
 @dp.message(Anketa.tasdiqlash, F.text == "✅ Tasdiqlash")
 async def tasdiqlash_handler(message: Message, state: FSMContext):
     d = await state.get_data()
+    firma_nomi = d.get("firma")
+    topic_id = FIRMA_LAVOZIMLAR[firma_nomi]["topic_id"]
 
     caption = (
         f"📋 *YANGI ANKETA*\n\n"
@@ -281,7 +288,8 @@ async def tasdiqlash_handler(message: Message, state: FSMContext):
         chat_id=GROUP_ID,
         photo=d.get('rasm_file_id'),
         caption=caption,
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        message_thread_id=topic_id
     )
 
     await message.answer(
