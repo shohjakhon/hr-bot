@@ -5,13 +5,18 @@ from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKey
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.filters import CommandStart, Command
+from aiogram.filters import CommandStart
 
 BOT_TOKEN = "8658587944:AAGx_gs1LyUQ62V64zAup9CrdkXAii7LhFo"
 GROUP_ID = -1003792957294
 
-FIRMALAR = ["Firma 1", "Firma 2", "Firma 3", "Firma 4"]
-LAVOZIMLAR = ["Ish boshqaruvchi", "Sotuvchi", "Yuklovchi", "Haydovchi", "Usta"]
+FIRMA_LAVOZIMLAR = {
+   "Hisor Mebel": ["Sotuvchi", "Yuklovchi","Haydovchi"],
+        "Rayhonda Mazza (Fast food)": ["Kassir","Ish boshqaruvchi"],
+        "Rayhon Bog`": ["Ish boshqaruvchi"],
+}
+
+FIRMALAR = list(FIRMA_LAVOZIMLAR.keys())
 
 logging.basicConfig(level=logging.INFO)
 
@@ -26,25 +31,37 @@ class Anketa(StatesGroup):
     oldingi_ish = State()
     sabab = State()
     rasm = State()
+    tasdiqlash = State()
 
 def firma_keyboard():
     buttons = [[KeyboardButton(text=f)] for f in FIRMALAR]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
-def lavozim_keyboard():
-    buttons = [[KeyboardButton(text=l)] for l in LAVOZIMLAR]
+def lavozim_keyboard(firma_nomi):
+    lavozimlar = FIRMA_LAVOZIMLAR.get(firma_nomi, [])
+    buttons = [[KeyboardButton(text=l)] for l in lavozimlar]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
+def tasdiqlash_keyboard():
+    buttons = [
+        [KeyboardButton(text="✅ Tasdiqlash")],
+        [KeyboardButton(text="❌ Bekor qilish")],
+    ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-@dp.message(CommandStart())
-async def start(message: Message, state: FSMContext):
+async def bosh_sahifa(message: Message, state: FSMContext):
     await state.set_state(Anketa.firma)
     await message.answer(
         "👋 Xush kelibsiz! HR Anketa Botiga!\n\nQaysi firmaga murojaat qilmoqchisiz?",
         reply_markup=firma_keyboard()
     )
+
+@dp.message(CommandStart())
+async def start(message: Message, state: FSMContext):
+    await bosh_sahifa(message, state)
 
 @dp.message(Anketa.firma)
 async def get_firma(message: Message, state: FSMContext):
@@ -55,13 +72,16 @@ async def get_firma(message: Message, state: FSMContext):
     await state.set_state(Anketa.lavozim)
     await message.answer(
         f"✅ {message.text} tanlandi!\n\nQaysi lavozimga murojaat qilmoqchisiz?",
-        reply_markup=lavozim_keyboard()
+        reply_markup=lavozim_keyboard(message.text)
     )
 
 @dp.message(Anketa.lavozim)
 async def get_lavozim(message: Message, state: FSMContext):
-    if message.text not in LAVOZIMLAR:
-        await message.answer("Iltimos, quyidagi lavozimlardan birini tanlang:", reply_markup=lavozim_keyboard())
+    data = await state.get_data()
+    firma_nomi = data.get("firma")
+    lavozimlar = FIRMA_LAVOZIMLAR.get(firma_nomi, [])
+    if message.text not in lavozimlar:
+        await message.answer("Iltimos, quyidagi lavozimlardan birini tanlang:", reply_markup=lavozim_keyboard(firma_nomi))
         return
     await state.update_data(lavozim=message.text)
     await state.set_state(Anketa.ism)
@@ -111,8 +131,33 @@ async def get_sabab(message: Message, state: FSMContext):
 
 @dp.message(Anketa.rasm, F.photo)
 async def get_rasm(message: Message, state: FSMContext):
+    await state.update_data(rasm_file_id=message.photo[-1].file_id)
     d = await state.get_data()
-    photo = message.photo[-1]
+
+    preview = (
+        f"📋 *Anketangizni tekshiring:*\n\n"
+        f"🏢 *Firma:* {d.get('firma', '-')}\n"
+        f"💼 *Lavozim:* {d.get('lavozim', '-')}\n\n"
+        f"👤 *Ism Familiya:* {d.get('ism', '-')}\n"
+        f"🎂 *Yosh:* {d.get('yosh', '-')}\n"
+        f"📞 *Telefon:* {d.get('telefon', '-')}\n"
+        f"📍 *Manzil:* {d.get('manzil', '-')}\n"
+        f"🗓 *Tajriba:* {d.get('tajriba', '-')} yil\n"
+        f"🏭 *Oldingi ish joyi:* {d.get('oldingi_ish', '-')}\n"
+        f"💬 *Murojaat sababi:* {d.get('sabab', '-')}\n\n"
+        f"‼️ Ma'lumotlar to'g'rimi? Tasdiqlaysizmi?"
+    )
+
+    await state.set_state(Anketa.tasdiqlash)
+    await message.answer(preview, parse_mode="Markdown", reply_markup=tasdiqlash_keyboard())
+
+@dp.message(Anketa.rasm)
+async def rasm_xato(message: Message):
+    await message.answer("Iltimos, rasm yuboring (faqat rasm qabul qilinadi):")
+
+@dp.message(Anketa.tasdiqlash, F.text == "✅ Tasdiqlash")
+async def tasdiqlash_handler(message: Message, state: FSMContext):
+    d = await state.get_data()
 
     caption = (
         f"📋 *YANGI ANKETA*\n\n"
@@ -127,16 +172,34 @@ async def get_rasm(message: Message, state: FSMContext):
         f"💬 *Murojaat sababi:* {d.get('sabab', '-')}\n"
     )
 
-    await bot.send_photo(chat_id=GROUP_ID, photo=photo.file_id, caption=caption, parse_mode="Markdown")
+    await bot.send_photo(
+        chat_id=GROUP_ID,
+        photo=d.get('rasm_file_id'),
+        caption=caption,
+        parse_mode="Markdown"
+    )
+
     await message.answer(
         "✅ Anketangiz muvaffaqiyatli yuborildi!\n\nSiz bilan tez orada bog'lanamiz. Rahmat! 🙏",
         reply_markup=ReplyKeyboardRemove()
     )
     await state.clear()
 
-@dp.message(Anketa.rasm)
-async def rasm_xato(message: Message):
-    await message.answer("Iltimos, rasm yuboring (faqat rasm qabul qilinadi):")
+    # Bosh sahifaga qaytish
+    await asyncio.sleep(2)
+    await bosh_sahifa(message, state)
+
+@dp.message(Anketa.tasdiqlash, F.text == "❌ Bekor qilish")
+async def bekor_qilish(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer(
+        "❌ Anketa bekor qilindi.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+    # Bosh sahifaga qaytish
+    await asyncio.sleep(2)
+    await bosh_sahifa(message, state)
 
 async def main():
     logging.info("Bot ishga tushdi...")
