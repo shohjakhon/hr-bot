@@ -11,8 +11,13 @@ from aiogram.filters import CommandStart
 import os
 
 # ===== ENVIRONMENT VARIABLES =====
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8658587944:AAGx_gs1LyUQ62V64zAup9CrdkXAii7LhFo")
-GROUP_ID = int(os.getenv("GROUP_ID", "-1003792957294"))
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GROUP_ID = int(os.getenv("GROUP_ID", "0"))
+
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable not set!")
+if not GROUP_ID:
+    raise ValueError("GROUP_ID environment variable not set!")
 
 # ===== FIRMA VA LAVOZIMLAR =====
 FIRMA_LAVOZIMLAR = {
@@ -27,8 +32,7 @@ VAZIFALAR = {
         "• Mijozlarga mahsulot taqdim etish\n"
         "• Kunlik sotuv rejasini bajarish\n"
         "• Kassa va hisob-kitob yuritish\n"
-        "• Do'kon tartibini saqlash\n"
-        "• Hisobot topshirish\n\n"
+        "• Do'kon tartibini saqlash\n\n"
         "Shu vazifalarga tayyormisiz?"
     ),
     "Yuklovchi": (
@@ -67,34 +71,31 @@ VAZIFALAR = {
 
 FIRMALAR = list(FIRMA_LAVOZIMLAR.keys())
 
+# ===== SPAM HIMOYA =====
+# Har foydalanuvchi oxirgi anketa yuborgan vaqti
+last_submission = {}
+COOLDOWN_SECONDS = 3600  # 1 soat
+
 # ===== LOGGING =====
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.WARNING,
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# ===== VALIDATSIYA FUNKTSIYALARI =====
+# ===== VALIDATSIYA =====
 def validate_phone(phone):
-    """Telefon: +998XXXXXXXXX"""
     pattern = r"^\+998\d{9}$"
     return re.match(pattern, phone) is not None
 
 def validate_age(age_str):
-    """Yosh: 18-70"""
     try:
         age = int(age_str)
         return 18 <= age <= 70
     except:
         return False
 
-def validate_email(email):
-    """Email: user@domain.com"""
-    pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-    return re.match(pattern, email) is not None
-
 def validate_name(name):
-    """Ism: minimal 3 belgi"""
     return len(name.strip()) >= 3
 
 # ===== STATES =====
@@ -105,7 +106,6 @@ class Anketa(StatesGroup):
     ism = State()
     yosh = State()
     telefon = State()
-    email = State()
     manzil = State()
     tajriba = State()
     oldingi_ish = State()
@@ -113,7 +113,7 @@ class Anketa(StatesGroup):
     rasm = State()
     tasdiqlash = State()
 
-# ===== KEYBOARD FUNKTSIYALARI =====
+# ===== KEYBOARDLAR =====
 def firma_keyboard():
     buttons = [[KeyboardButton(text=f)] for f in FIRMALAR]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
@@ -143,7 +143,6 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
 async def bosh_sahifa(message: Message, state: FSMContext):
-    """Bosh sahifaga qaytarish"""
     await state.clear()
     await state.set_state(Anketa.firma)
     await message.answer(
@@ -154,26 +153,18 @@ async def bosh_sahifa(message: Message, state: FSMContext):
 
 @dp.message(CommandStart())
 async def start(message: Message, state: FSMContext):
-    """Botni /start bilan boshlash"""
-    logger.info(f"User {message.from_user.id} start qildi")
     await bosh_sahifa(message, state)
 
 # ===== FIRMA TANLASH =====
 @dp.message(Anketa.firma)
 async def get_firma(message: Message, state: FSMContext):
     if message.text not in FIRMALAR:
-        await message.answer(
-            "❌ Iltimos, quyidagi firmalardan birini tanlang:",
-            reply_markup=firma_keyboard()
-        )
+        await message.answer("❌ Iltimos, quyidagi firmalardan birini tanlang:", reply_markup=firma_keyboard())
         return
-    
-    logger.info(f"User {message.from_user.id} firma: {message.text}")
     await state.update_data(firma=message.text)
     await state.set_state(Anketa.lavozim)
     await message.answer(
-        f"✅ {message.text} tanlandi!\n\n"
-        f"💼 Qaysi lavozimga murojaat qilmoqchisiz?",
+        f"✅ {message.text} tanlandi!\n\n💼 Qaysi lavozimga murojaat qilmoqchisiz?",
         reply_markup=lavozim_keyboard(message.text)
     )
 
@@ -183,19 +174,12 @@ async def get_lavozim(message: Message, state: FSMContext):
     if message.text == "⬅️ Ortga":
         await bosh_sahifa(message, state)
         return
-    
     data = await state.get_data()
     firma_nomi = data.get("firma")
     lavozimlar = FIRMA_LAVOZIMLAR[firma_nomi]["lavozimlar"]
-    
     if message.text not in lavozimlar:
-        await message.answer(
-            "❌ Iltimos, quyidagi lavozimlardan birini tanlang:",
-            reply_markup=lavozim_keyboard(firma_nomi)
-        )
+        await message.answer("❌ Iltimos, quyidagi lavozimlardan birini tanlang:", reply_markup=lavozim_keyboard(firma_nomi))
         return
-    
-    logger.info(f"User {message.from_user.id} lavozim: {message.text}")
     await state.update_data(lavozim=message.text)
     vazifa_matni = VAZIFALAR.get(message.text, "📋 Bu lavozim uchun vazifalar belgilanmagan.\n\nDavom etasizmi?")
     await state.set_state(Anketa.vazifa_tasdiqlash)
@@ -206,8 +190,7 @@ async def get_lavozim(message: Message, state: FSMContext):
 async def vazifa_rozman(message: Message, state: FSMContext):
     await state.set_state(Anketa.ism)
     await message.answer(
-        "📝 Anketa boshlanadi!\n\n"
-        "1️⃣ Ism va Familiyangizni kiriting (minimal 3 ta belgi):",
+        "📝 Anketa boshlanadi!\n\n1️⃣ Ism va Familiyangizni kiriting:",
         reply_markup=ReplyKeyboardRemove()
     )
 
@@ -216,71 +199,48 @@ async def vazifa_ortga(message: Message, state: FSMContext):
     data = await state.get_data()
     firma_nomi = data.get("firma")
     await state.set_state(Anketa.lavozim)
-    await message.answer(
-        "💼 Qaysi lavozimga murojaat qilmoqchisiz?",
-        reply_markup=lavozim_keyboard(firma_nomi)
-    )
+    await message.answer("💼 Qaysi lavozimga murojaat qilmoqchisiz?", reply_markup=lavozim_keyboard(firma_nomi))
 
-# ===== ISM OLISH =====
+# ===== ISM =====
 @dp.message(Anketa.ism)
 async def get_ism(message: Message, state: FSMContext):
     if not validate_name(message.text):
         await message.answer("❌ Ism minimal 3 ta belgidan iborat bo'lishi kerak. Qayta kiriting:")
         return
-    
     await state.update_data(ism=message.text.strip())
     await state.set_state(Anketa.yosh)
     await message.answer("2️⃣ Yoshingizni kiriting (18-70 yil):")
 
-# ===== YOSH OLISH =====
+# ===== YOSH =====
 @dp.message(Anketa.yosh)
 async def get_yosh(message: Message, state: FSMContext):
     if not validate_age(message.text):
         await message.answer("❌ Yosh 18 dan 70 gacha bo'lishi kerak. Qayta kiriting:")
         return
-    
     await state.update_data(yosh=message.text)
     await state.set_state(Anketa.telefon)
     await message.answer("3️⃣ Telefon raqamingizni kiriting (+998XXXXXXXXX):")
 
-# ===== TELEFON OLISH =====
+# ===== TELEFON =====
 @dp.message(Anketa.telefon)
 async def get_telefon(message: Message, state: FSMContext):
     if not validate_phone(message.text):
         await message.answer(
-            "❌ Telefon formati noto'g'ri!\n\n"
-            "To'g'ri format: +998901234567\n\n"
-            "Qayta kiriting:"
+            "❌ Telefon formati noto'g'ri!\n\nTo'g'ri format: +998901234567\n\nQayta kiriting:"
         )
         return
-    
     await state.update_data(telefon=message.text)
-    await state.set_state(Anketa.email)
-    await message.answer("4️⃣ Email manzilingizni kiriting (masalan: example@gmail.com):")
-
-# ===== EMAIL OLISH =====
-@dp.message(Anketa.email)
-async def get_email(message: Message, state: FSMContext):
-    if not validate_email(message.text):
-        await message.answer(
-            "❌ Email formati noto'g'ri!\n\n"
-            "To'g'ri format: example@gmail.com\n\n"
-            "Qayta kiriting:"
-        )
-        return
-    
-    await state.update_data(email=message.text.lower())
     await state.set_state(Anketa.manzil)
-    await message.answer("5️⃣ Yashash manzilingizni kiriting (Shahar, tuman):")
+    await message.answer("4️⃣ Yashash manzilingizni kiriting (Shahar, tuman):")
 
-# ===== MANZIL OLISH =====
+# ===== MANZIL =====
 @dp.message(Anketa.manzil)
 async def get_manzil(message: Message, state: FSMContext):
     await state.update_data(manzil=message.text)
     await state.set_state(Anketa.tajriba)
-    await message.answer("6️⃣ Ish tajribangiz necha yil? (masalan: 2 yil, 5 yil yoki 0):")
+    await message.answer("5️⃣ Ish tajribangiz necha yil? (masalan: 2, 5 yoki 0):")
 
-# ===== TAJRIBA OLISH =====
+# ===== TAJRIBA =====
 @dp.message(Anketa.tajriba)
 async def get_tajriba(message: Message, state: FSMContext):
     try:
@@ -291,37 +251,32 @@ async def get_tajriba(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("❌ Iltimos, raqam kiriting (masalan: 2, 5 yoki 0):")
         return
-    
     await state.update_data(tajriba=message.text)
     await state.set_state(Anketa.oldingi_ish)
-    await message.answer("7️⃣ Oldingi ish joyingiz qayer edi? (yoki 'yo'q' deb yozing):")
+    await message.answer("6️⃣ Oldingi ish joyingiz qayer edi? (yoki 'yo'q' deb yozing):")
 
-# ===== OLDINGI ISH OLISH =====
+# ===== OLDINGI ISH =====
 @dp.message(Anketa.oldingi_ish)
 async def get_oldingi_ish(message: Message, state: FSMContext):
     await state.update_data(oldingi_ish=message.text)
     await state.set_state(Anketa.sabab)
-    await message.answer("8️⃣ Nega aynan shu lavozimga murojaat qilmoqdasiz?")
+    await message.answer("7️⃣ Nega aynan shu lavozimga murojaat qilmoqdasiz?")
 
-# ===== SABAB OLISH =====
+# ===== SABAB =====
 @dp.message(Anketa.sabab)
 async def get_sabab(message: Message, state: FSMContext):
     await state.update_data(sabab=message.text)
     await state.set_state(Anketa.rasm)
-    await message.answer(
-        "9️⃣ Rasmingizni yuboring (selfie yoki passport foto):\n\n"
-        "💡 Rasm hajmi: maksimal 5 MB"
-    )
+    await message.answer("8️⃣ Rasmingizni yuboring (selfie yoki passport foto):\n\n💡 Rasm hajmi: maksimal 5 MB")
 
-# ===== RASM OLISH =====
+# ===== RASM =====
 @dp.message(Anketa.rasm, F.photo)
 async def get_rasm(message: Message, state: FSMContext):
-    # Rasm o'lchami tekshirish
     file_info = await bot.get_file(message.photo[-1].file_id)
-    if file_info.file_size > 5 * 1024 * 1024:  # 5 MB
+    if file_info.file_size > 5 * 1024 * 1024:
         await message.answer("❌ Rasm juda katta! Maksimal 5 MB bo'lishi kerak.")
         return
-    
+
     await state.update_data(rasm_file_id=message.photo[-1].file_id)
     d = await state.get_data()
 
@@ -332,7 +287,6 @@ async def get_rasm(message: Message, state: FSMContext):
         f"👤 *Ism Familiya:* {d.get('ism', '-')}\n"
         f"🎂 *Yosh:* {d.get('yosh', '-')}\n"
         f"📞 *Telefon:* {d.get('telefon', '-')}\n"
-        f"📧 *Email:* {d.get('email', '-')}\n"
         f"📍 *Manzil:* {d.get('manzil', '-')}\n"
         f"🗓 *Tajriba:* {d.get('tajriba', '-')} yil\n"
         f"🏭 *Oldingi ish joyi:* {d.get('oldingi_ish', '-')}\n"
@@ -350,6 +304,22 @@ async def rasm_xato(message: Message):
 # ===== TASDIQLASH =====
 @dp.message(Anketa.tasdiqlash, F.text == "✅ Tasdiqlash")
 async def tasdiqlash_handler(message: Message, state: FSMContext):
+    user_id = message.from_user.id
+
+    # Spam tekshirish
+    now = datetime.now().timestamp()
+    if user_id in last_submission:
+        diff = now - last_submission[user_id]
+        if diff < COOLDOWN_SECONDS:
+            qolgan = int((COOLDOWN_SECONDS - diff) / 60)
+            await message.answer(
+                f"⏳ Siz yaqinda anketa yuborgansiz.\n\n"
+                f"Yana {qolgan} daqiqadan so'ng yuborishingiz mumkin.",
+                reply_markup=ReplyKeyboardRemove()
+            )
+            await state.clear()
+            return
+
     try:
         d = await state.get_data()
         firma_nomi = d.get("firma")
@@ -362,12 +332,12 @@ async def tasdiqlash_handler(message: Message, state: FSMContext):
             f"👤 *Ism Familiya:* {d.get('ism', '-')}\n"
             f"🎂 *Yosh:* {d.get('yosh', '-')}\n"
             f"📞 *Telefon:* {d.get('telefon', '-')}\n"
-            f"📧 *Email:* {d.get('email', '-')}\n"
             f"📍 *Manzil:* {d.get('manzil', '-')}\n"
             f"🗓 *Tajriba:* {d.get('tajriba', '-')} yil\n"
             f"🏭 *Oldingi ish joyi:* {d.get('oldingi_ish', '-')}\n"
             f"💬 *Murojaat sababi:* {d.get('sabab', '-')}\n"
             f"⏰ *Vaqti:* {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
+            f"🆔 *User ID:* {user_id}\n"
         )
 
         await bot.send_photo(
@@ -378,42 +348,34 @@ async def tasdiqlash_handler(message: Message, state: FSMContext):
             message_thread_id=topic_id
         )
 
-        logger.info(f"✅ Anketa yuborildi: {d.get('ism')} ({d.get('telefon')}) - {firma_nomi}")
+        last_submission[user_id] = now
 
         await message.answer(
             "✅ Anketangiz muvaffaqiyatli yuborildi!\n\n"
-            "📞 Siz bilan tez orada bog'lanamiz.\n\n"
-            "Rahmat! 🙏",
+            "📞 Siz bilan tez orada bog'lanamiz.\n\nRahmat! 🙏",
             reply_markup=ReplyKeyboardRemove()
         )
         await state.clear()
-        await asyncio.sleep(2)
         await bosh_sahifa(message, state)
 
     except Exception as e:
-        logger.error(f"❌ Xato: {e}")
+        logger.error(f"Anketa yuborishda xato: {e}")
         await message.answer(
-            "❌ Xatolik yuz berdi!\n\n"
-            "Iltimos, qayta urinib ko'ring yoki bosh sahifaga qaytamiz.",
+            "❌ Xatolik yuz berdi! Iltimos, qayta urinib ko'ring.",
             reply_markup=ReplyKeyboardRemove()
         )
         await state.clear()
-        await asyncio.sleep(1)
         await bosh_sahifa(message, state)
 
 @dp.message(Anketa.tasdiqlash, F.text == "❌ Bekor qilish")
 async def bekor_qilish(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Anketa bekor qilindi.", reply_markup=ReplyKeyboardRemove())
-    await asyncio.sleep(2)
     await bosh_sahifa(message, state)
 
 async def main():
-    logger.info("🚀 Bot ishga tushdi...")
-    try:
-        await dp.start_polling(bot)
-    except KeyboardInterrupt:
-        logger.info("Bot to'xtatildi")
+    logger.warning("Bot ishga tushdi...")
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
