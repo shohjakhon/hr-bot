@@ -10,14 +10,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.filters import CommandStart
 import os
 
-# ===== ENVIRONMENT VARIABLES =====
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-GROUP_ID = int(os.getenv("GROUP_ID", "0"))
-
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable not set!")
-if not GROUP_ID:
-    raise ValueError("GROUP_ID environment variable not set!")
+# ===== SOZLAMALAR =====
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8658587944:AAGx_gs1LyUQ62V64zAup9CrdkXAii7LhFo")
+GROUP_ID = int(os.getenv("GROUP_ID", "-1003792957294"))
 
 # ===== FIRMA VA LAVOZIMLAR =====
 FIRMA_LAVOZIMLAR = {
@@ -72,7 +67,6 @@ VAZIFALAR = {
 FIRMALAR = list(FIRMA_LAVOZIMLAR.keys())
 
 # ===== SPAM HIMOYA =====
-# Har foydalanuvchi oxirgi anketa yuborgan vaqti
 last_submission = {}
 COOLDOWN_SECONDS = 3600  # 1 soat
 
@@ -276,10 +270,8 @@ async def get_rasm(message: Message, state: FSMContext):
     if file_info.file_size > 5 * 1024 * 1024:
         await message.answer("❌ Rasm juda katta! Maksimal 5 MB bo'lishi kerak.")
         return
-
     await state.update_data(rasm_file_id=message.photo[-1].file_id)
     d = await state.get_data()
-
     preview = (
         f"📋 *ANKETANGIZNI TEKSHIRING:*\n\n"
         f"🏢 *Firma:* {d.get('firma', '-')}\n"
@@ -293,7 +285,6 @@ async def get_rasm(message: Message, state: FSMContext):
         f"💬 *Murojaat sababi:* {d.get('sabab', '-')}\n\n"
         f"‼️ Ma'lumotlar to'g'rimi?"
     )
-
     await state.set_state(Anketa.tasdiqlash)
     await message.answer(preview, parse_mode="Markdown", reply_markup=tasdiqlash_keyboard())
 
@@ -305,26 +296,21 @@ async def rasm_xato(message: Message):
 @dp.message(Anketa.tasdiqlash, F.text == "✅ Tasdiqlash")
 async def tasdiqlash_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
-
-    # Spam tekshirish
     now = datetime.now().timestamp()
     if user_id in last_submission:
         diff = now - last_submission[user_id]
         if diff < COOLDOWN_SECONDS:
             qolgan = int((COOLDOWN_SECONDS - diff) / 60)
             await message.answer(
-                f"⏳ Siz yaqinda anketa yuborgansiz.\n\n"
-                f"Yana {qolgan} daqiqadan so'ng yuborishingiz mumkin.",
+                f"⏳ Siz yaqinda anketa yuborgansiz.\n\nYana {qolgan} daqiqadan so'ng yuborishingiz mumkin.",
                 reply_markup=ReplyKeyboardRemove()
             )
             await state.clear()
             return
-
     try:
         d = await state.get_data()
         firma_nomi = d.get("firma")
         topic_id = FIRMA_LAVOZIMLAR[firma_nomi]["topic_id"]
-
         caption = (
             f"📋 *YANGI ANKETA*\n\n"
             f"🏢 *Firma:* {d.get('firma', '-')}\n"
@@ -339,7 +325,6 @@ async def tasdiqlash_handler(message: Message, state: FSMContext):
             f"⏰ *Vaqti:* {datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
             f"🆔 *User ID:* {user_id}\n"
         )
-
         await bot.send_photo(
             chat_id=GROUP_ID,
             photo=d.get('rasm_file_id'),
@@ -347,9 +332,7 @@ async def tasdiqlash_handler(message: Message, state: FSMContext):
             parse_mode="Markdown",
             message_thread_id=topic_id
         )
-
         last_submission[user_id] = now
-
         await message.answer(
             "✅ Anketangiz muvaffaqiyatli yuborildi!\n\n"
             "📞 Siz bilan tez orada bog'lanamiz.\n\nRahmat! 🙏",
@@ -357,7 +340,6 @@ async def tasdiqlash_handler(message: Message, state: FSMContext):
         )
         await state.clear()
         await bosh_sahifa(message, state)
-
     except Exception as e:
         logger.error(f"Anketa yuborishda xato: {e}")
         await message.answer(
