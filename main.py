@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import re
 from datetime import datetime
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
@@ -17,7 +16,7 @@ GROUP_ID = int(os.getenv("GROUP_ID", "-1003792957294"))
 # ===== FIRMA VA LAVOZIMLAR =====
 FIRMA_LAVOZIMLAR = {
     "Hisor Mebel": {"lavozimlar": ["Sotuvchi", "Yuklovchi", "Haydovchi"], "topic_id": 9},
-    "Rayhonda Mazza (Fast food)": {"lavozimlar": ["Kassir", "Ish boshqaruvchi"], "topic_id": 25},
+    "Rayhona Mazza (Fast food)": {"lavozimlar": ["Kassir", "Ish boshqaruvchi", "Oshpaz"], "topic_id": 25},
     "Rayhon Bog'": {"lavozimlar": ["Ish boshqaruvchi"], "topic_id": 8},
 }
 
@@ -62,35 +61,31 @@ VAZIFALAR = {
         "• Muammolarni hal qilish\n\n"
         "Shu vazifalarga tayyormisiz?"
     ),
+    "Oshpaz": (
+        "📋 *Oshpaz vakansiyasi — Rayhona Mazza (Fast food)*\n\n"
+        "💲 *Oylik:* Suhbat orqali\n\n"
+        "📌 *Talablar:*\n"
+        "• O'z vaqtida ishga kelish\n"
+        "• Muzqaymoq hamda Fenski vafli qila oladigan mutaxassis bo'lishi\n\n"
+        "🎁 *Ishchiga takliflar:*\n"
+        "• Usib borish imkoniyati\n"
+        "• Jamoa bilan ishlash\n"
+        "• Tajribasini oshirish\n"
+        "• Kopi bonuslar\n\n"
+        "🕐 *Ish vaqti:* 08:00 — 22:30\n\n"
+        "📍 *Manzil:* Rayhon bog'i oldida\n\n"
+        "Shu vazifalarga tayyormisiz?"
+    ),
 }
 
 FIRMALAR = list(FIRMA_LAVOZIMLAR.keys())
 
 # ===== SPAM HIMOYA =====
 last_submission = {}
-COOLDOWN_SECONDS = 3600  # 1 soat
+COOLDOWN_SECONDS = 3600
 
-# ===== LOGGING =====
-logging.basicConfig(
-    level=logging.WARNING,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# ===== VALIDATSIYA =====
-def validate_phone(phone):
-    pattern = r"^\+998\d{9}$"
-    return re.match(pattern, phone) is not None
-
-def validate_age(age_str):
-    try:
-        age = int(age_str)
-        return 18 <= age <= 70
-    except:
-        return False
-
-def validate_name(name):
-    return len(name.strip()) >= 3
 
 # ===== STATES =====
 class Anketa(StatesGroup):
@@ -125,6 +120,12 @@ def rozman_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
+def telefon_keyboard(message: Message):
+    buttons = [
+        [KeyboardButton(text="📱 Raqamni yuborish", request_contact=True)],
+    ]
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+
 def tasdiqlash_keyboard():
     buttons = [
         [KeyboardButton(text="✅ Tasdiqlash")],
@@ -132,7 +133,7 @@ def tasdiqlash_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
 
-# ===== BOT SETUP =====
+# ===== BOT =====
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
@@ -140,8 +141,7 @@ async def bosh_sahifa(message: Message, state: FSMContext):
     await state.clear()
     await state.set_state(Anketa.firma)
     await message.answer(
-        "👋 Xush kelibsiz! HR Anketa Botiga!\n\n"
-        "🏢 Qaysi firmaga murojaat qilmoqchisiz?",
+        "👋 Xush kelibsiz! HR Anketa Botiga!\n\n🏢 Qaysi firmaga murojaat qilmoqchisiz?",
         reply_markup=firma_keyboard()
     )
 
@@ -149,7 +149,6 @@ async def bosh_sahifa(message: Message, state: FSMContext):
 async def start(message: Message, state: FSMContext):
     await bosh_sahifa(message, state)
 
-# ===== FIRMA TANLASH =====
 @dp.message(Anketa.firma)
 async def get_firma(message: Message, state: FSMContext):
     if message.text not in FIRMALAR:
@@ -162,7 +161,6 @@ async def get_firma(message: Message, state: FSMContext):
         reply_markup=lavozim_keyboard(message.text)
     )
 
-# ===== LAVOZIM TANLASH =====
 @dp.message(Anketa.lavozim)
 async def get_lavozim(message: Message, state: FSMContext):
     if message.text == "⬅️ Ortga":
@@ -172,21 +170,17 @@ async def get_lavozim(message: Message, state: FSMContext):
     firma_nomi = data.get("firma")
     lavozimlar = FIRMA_LAVOZIMLAR[firma_nomi]["lavozimlar"]
     if message.text not in lavozimlar:
-        await message.answer("❌ Iltimos, quyidagi lavozimlardan birini tanlang:", reply_markup=lavozim_keyboard(firma_nomi))
+        await message.answer("❌ Iltimos, ro'yxatdan birini tanlang:", reply_markup=lavozim_keyboard(firma_nomi))
         return
     await state.update_data(lavozim=message.text)
     vazifa_matni = VAZIFALAR.get(message.text, "📋 Bu lavozim uchun vazifalar belgilanmagan.\n\nDavom etasizmi?")
     await state.set_state(Anketa.vazifa_tasdiqlash)
     await message.answer(vazifa_matni, parse_mode="Markdown", reply_markup=rozman_keyboard())
 
-# ===== VAZIFA TASDIQLASH =====
 @dp.message(Anketa.vazifa_tasdiqlash, F.text == "✅ Rozman, davom etaman")
 async def vazifa_rozman(message: Message, state: FSMContext):
     await state.set_state(Anketa.ism)
-    await message.answer(
-        "📝 Anketa boshlanadi!\n\n1️⃣ Ism va Familiyangizni kiriting:",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await message.answer("📝 Anketa boshlanadi!\n\n1️⃣ Ism va Familiyangizni kiriting:", reply_markup=ReplyKeyboardRemove())
 
 @dp.message(Anketa.vazifa_tasdiqlash, F.text == "⬅️ Ortga")
 async def vazifa_ortga(message: Message, state: FSMContext):
@@ -195,81 +189,61 @@ async def vazifa_ortga(message: Message, state: FSMContext):
     await state.set_state(Anketa.lavozim)
     await message.answer("💼 Qaysi lavozimga murojaat qilmoqchisiz?", reply_markup=lavozim_keyboard(firma_nomi))
 
-# ===== ISM =====
 @dp.message(Anketa.ism)
 async def get_ism(message: Message, state: FSMContext):
-    if not validate_name(message.text):
-        await message.answer("❌ Ism minimal 3 ta belgidan iborat bo'lishi kerak. Qayta kiriting:")
-        return
     await state.update_data(ism=message.text.strip())
     await state.set_state(Anketa.yosh)
-    await message.answer("2️⃣ Yoshingizni kiriting (18-70 yil):")
+    await message.answer("2️⃣ Yoshingizni kiriting:")
 
-# ===== YOSH =====
 @dp.message(Anketa.yosh)
 async def get_yosh(message: Message, state: FSMContext):
-    if not validate_age(message.text):
-        await message.answer("❌ Yosh 18 dan 70 gacha bo'lishi kerak. Qayta kiriting:")
-        return
     await state.update_data(yosh=message.text)
     await state.set_state(Anketa.telefon)
-    await message.answer("3️⃣ Telefon raqamingizni kiriting (+998XXXXXXXXX):")
+    buttons = [[KeyboardButton(text="📱 Raqamni yuborish", request_contact=True)]]
+    kb = ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True, one_time_keyboard=True)
+    await message.answer("3️⃣ Telefon raqamingizni yuboring:", reply_markup=kb)
 
-# ===== TELEFON =====
-@dp.message(Anketa.telefon)
-async def get_telefon(message: Message, state: FSMContext):
-    if not validate_phone(message.text):
-        await message.answer(
-            "❌ Telefon formati noto'g'ri!\n\nTo'g'ri format: +998901234567\n\nQayta kiriting:"
-        )
-        return
+@dp.message(Anketa.telefon, F.contact)
+async def get_telefon_contact(message: Message, state: FSMContext):
+    telefon = message.contact.phone_number
+    if not telefon.startswith("+"):
+        telefon = "+" + telefon
+    await state.update_data(telefon=telefon)
+    await state.set_state(Anketa.manzil)
+    await message.answer("4️⃣ Yashash manzilingizni kiriting (Shahar, tuman):", reply_markup=ReplyKeyboardRemove())
+
+@dp.message(Anketa.telefon, F.text)
+async def get_telefon_text(message: Message, state: FSMContext):
     await state.update_data(telefon=message.text)
     await state.set_state(Anketa.manzil)
-    await message.answer("4️⃣ Yashash manzilingizni kiriting (Shahar, tuman):")
+    await message.answer("4️⃣ Yashash manzilingizni kiriting (Shahar, tuman):", reply_markup=ReplyKeyboardRemove())
 
-# ===== MANZIL =====
 @dp.message(Anketa.manzil)
 async def get_manzil(message: Message, state: FSMContext):
     await state.update_data(manzil=message.text)
     await state.set_state(Anketa.tajriba)
     await message.answer("5️⃣ Ish tajribangiz necha yil? (masalan: 2, 5 yoki 0):")
 
-# ===== TAJRIBA =====
 @dp.message(Anketa.tajriba)
 async def get_tajriba(message: Message, state: FSMContext):
-    try:
-        tajriba = int(message.text)
-        if tajriba < 0 or tajriba > 50:
-            await message.answer("❌ Tajriba 0 dan 50 gacha bo'lishi kerak. Qayta kiriting:")
-            return
-    except ValueError:
-        await message.answer("❌ Iltimos, raqam kiriting (masalan: 2, 5 yoki 0):")
-        return
     await state.update_data(tajriba=message.text)
     await state.set_state(Anketa.oldingi_ish)
     await message.answer("6️⃣ Oldingi ish joyingiz qayer edi? (yoki 'yo'q' deb yozing):")
 
-# ===== OLDINGI ISH =====
 @dp.message(Anketa.oldingi_ish)
 async def get_oldingi_ish(message: Message, state: FSMContext):
     await state.update_data(oldingi_ish=message.text)
     await state.set_state(Anketa.sabab)
     await message.answer("7️⃣ Nega aynan shu lavozimga murojaat qilmoqdasiz?")
 
-# ===== SABAB =====
 @dp.message(Anketa.sabab)
 async def get_sabab(message: Message, state: FSMContext):
     await state.update_data(sabab=message.text)
     await state.set_state(Anketa.rasm)
-    await message.answer("8️⃣ Rasmingizni yuboring (selfie yoki passport foto):\n\n💡 Rasm hajmi: maksimal 5 MB")
+    await message.answer("8️⃣ Rasmingizni yuboring (selfie yoki passport foto):")
 
-# ===== RASM =====
 @dp.message(Anketa.rasm, F.photo)
 async def get_rasm(message: Message, state: FSMContext):
-    file_info = await bot.get_file(message.photo[-1].file_id)
-    if file_info.file_size > 5 * 1024 * 1024:
-        await message.answer("❌ Rasm juda katta! Maksimal 5 MB bo'lishi kerak.")
-        return
     await state.update_data(rasm_file_id=message.photo[-1].file_id)
     d = await state.get_data()
     preview = (
@@ -292,7 +266,6 @@ async def get_rasm(message: Message, state: FSMContext):
 async def rasm_xato(message: Message):
     await message.answer("❌ Iltimos, rasm yuboring (faqat rasm qabul qilinadi):")
 
-# ===== TASDIQLASH =====
 @dp.message(Anketa.tasdiqlash, F.text == "✅ Tasdiqlash")
 async def tasdiqlash_handler(message: Message, state: FSMContext):
     user_id = message.from_user.id
@@ -334,18 +307,15 @@ async def tasdiqlash_handler(message: Message, state: FSMContext):
         )
         last_submission[user_id] = now
         await message.answer(
-            "✅ Anketangiz muvaffaqiyatli yuborildi!\n\n"
-            "📞 Siz bilan tez orada bog'lanamiz.\n\nRahmat! 🙏",
+            "✅ Anketangiz muvaffaqiyatli yuborildi!\n\n📞 Siz bilan tez orada bog'lanamiz.\n\nRahmat! 🙏",
             reply_markup=ReplyKeyboardRemove()
         )
         await state.clear()
+        await asyncio.sleep(2)
         await bosh_sahifa(message, state)
     except Exception as e:
-        logger.error(f"Anketa yuborishda xato: {e}")
-        await message.answer(
-            "❌ Xatolik yuz berdi! Iltimos, qayta urinib ko'ring.",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        logger.error(f"Xato: {e}")
+        await message.answer("❌ Xatolik yuz berdi! Qayta urinib ko'ring.", reply_markup=ReplyKeyboardRemove())
         await state.clear()
         await bosh_sahifa(message, state)
 
@@ -353,6 +323,7 @@ async def tasdiqlash_handler(message: Message, state: FSMContext):
 async def bekor_qilish(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Anketa bekor qilindi.", reply_markup=ReplyKeyboardRemove())
+    await asyncio.sleep(2)
     await bosh_sahifa(message, state)
 
 async def main():
